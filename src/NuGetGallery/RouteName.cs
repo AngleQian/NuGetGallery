@@ -111,6 +111,7 @@ namespace NuGetGallery
         public const string GetOrganizationCertificates = "GetOrganizationCertificates";
         public const string SetRequiredSigner = "SetRequiredSigner";
         public const string License = "License";
+        public const string OpenInInteractiveNotebooks = "OpenInInteractiveNotebooks";
         public const string PagesSimulateError = "PagesSimulateError";
         public const string ApiSimulateError = "ApiSimulateError";
         public const string ExperimentsSearchSideBySide = "ExperimentsSearchSideBySide";

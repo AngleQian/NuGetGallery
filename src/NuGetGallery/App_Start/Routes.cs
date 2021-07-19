@@ -312,6 +312,11 @@ namespace NuGetGallery
                 "packages/{id}/{version}/license",
                 new { controller = "Packages", action = "License" });
 
+            routes.MapRoute(
+                RouteName.OpenInInteractiveNotebooks,
+                "packages/{id}/{version}/openininteractivenotebooks",
+                new { controller = "Packages", action = "OpenInInteractiveNotebooks" });
+
             //Redirecting v1 Confirmation Route
             routes.Redirect(
                 r => r.MapRoute(

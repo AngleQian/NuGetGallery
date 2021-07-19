@@ -1542,6 +1542,16 @@ namespace NuGetGallery
             return Redirect(Url.Package(package.PackageRegistration.Id, package.NormalizedVersion));
         }
 
+        [HttpGet]
+        public ActionResult OpenInInteractiveNotebooks(string id, string version, string x)
+        {
+            // grab readme (from disk?)
+            // add ```csharp stuff at the start of it
+            // send it
+
+            return Content($"#!csharp\r\n#r \"nuget: {id}, {version}\"");
+        }
+
         private async Task<ActionResult> ValidateReportMyPackageViewModel(ReportMyPackageViewModel reportForm, Package package)
         {
             if (package == null)

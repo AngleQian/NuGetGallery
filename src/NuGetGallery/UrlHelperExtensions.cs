@@ -1350,6 +1350,28 @@ namespace NuGetGallery
             return url.PackageVersionAction(nameof(PackagesController.ContactOwners), package, relativeUrl);
         }
 
+        public static string OpenInInteractiveNotebook(this UrlHelper url, string id, string version, bool relativeUrl = true)
+        {
+            string prefix = "vscode://ms-dotnettools.dotnet-interactive-vscode/openNotebook?url=";
+            string diblink = url.PackageAsNotebookDib(id, version, false);
+
+            return $"{prefix}{diblink}";
+        }
+
+        public static string PackageAsNotebookDib(this UrlHelper url, string id, string version, bool relativeUrl = true)
+        {
+            return GetRouteLink(
+                url,
+                RouteName.OpenInInteractiveNotebooks,
+                relativeUrl,
+                routeValues: new RouteValueDictionary
+                {
+                    { "id", id },
+                    { "version", version },
+                    { "x", ".dib" },
+                });
+        }
+
         public static string License(this UrlHelper url, IPackageVersionModel package, bool relativeUrl = true)
         {
             return url.PackageVersionAction(nameof(PackagesController.License), package, relativeUrl);
