@@ -2,6 +2,8 @@
 // Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 
 using System;
+using System.CodeDom;
+using System.CodeDom.Compiler;
 using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.Diagnostics;
@@ -39,6 +41,10 @@ using NuGetGallery.Packaging;
 using NuGetGallery.Security;
 using NuGetGallery.Services;
 using NuGetGallery.ViewModels;
+using Markdig;
+using Markdig.Syntax;
+using Markdig.Syntax.Inlines;
+using System.Text.RegularExpressions;
 
 namespace NuGetGallery
 {
@@ -101,6 +107,23 @@ namespace NuGetGallery
             CoreConstants.NuGetPackageFileExtension,
             CoreConstants.NuGetSymbolPackageFileExtension
         };
+
+        private static readonly MarkdownPipeline MarkdownPipeline = new MarkdownPipelineBuilder()
+            .UseAbbreviations()
+            .UseAutoIdentifiers()
+            .UseCitations()
+            .UseCustomContainers()
+            .UseDefinitionLists()
+            .UseEmphasisExtras()
+            .UseFigures()
+            .UseFooters()
+            .UseFootnotes()
+            .UseGridTables()
+            .UseMathematics()
+            .UseMediaLinks()
+            .UsePipeTables()
+            .UseListExtras()
+            .UseGenericAttributes().Build();
 
         // TODO: add support for URL-based package submission
         // TODO: add support for uploading logos and screenshots
@@ -654,7 +677,7 @@ namespace NuGetGallery
             var license = packageMetadata.LicenseMetadata?.License;
 
             if (_featureFlagService.IsLicenseMdRenderingEnabled(currentUser) &&
-                license != null && 
+                license != null &&
                 packageMetadata.LicenseMetadata?.Type == LicenseType.File &&
                 Path.GetExtension(license).Equals(ServicesConstants.MarkdownFileExtension, StringComparison.InvariantCulture))
             {
@@ -774,7 +797,7 @@ namespace NuGetGallery
                     licenseFileContents = await GetLicenseFileContentsOrNullAsync(packageMetadata, packageArchiveReader);
                     licenseExpressionSegments = GetLicenseExpressionSegmentsOrNull(packageMetadata.LicenseMetadata);
                     embeddedIconInformation = await GetEmbeddedIconOrNullAsync(packageMetadata, packageArchiveReader);
-                    readmeFileContents = await GetReadmeFileContentsOrNullAsync(packageMetadata, packageArchiveReader);          
+                    readmeFileContents = await GetReadmeFileContentsOrNullAsync(packageMetadata, packageArchiveReader);
                 }
                 catch (Exception ex)
                 {
@@ -868,7 +891,7 @@ namespace NuGetGallery
         // This additional delete action addresses issue https://github.com/NuGet/Engineering/issues/2866 - we need to error out.
         [HttpDelete]
         [SuppressMessage("Microsoft.Security.Web.Configuration", "CA3147: Missing ValidateAntiForgeryTokenAttribute", Justification = "nuget.exe will not provide a token")]
-        public HttpStatusCodeResult DisplayPackage() 
+        public HttpStatusCodeResult DisplayPackage()
             => new HttpStatusCodeWithHeadersResult(HttpStatusCode.MethodNotAllowed, new NameValueCollection() { { "allow", "GET" } });
 
         [HttpGet]
@@ -939,7 +962,7 @@ namespace NuGetGallery
             model.IsFuGetLinksEnabled = _featureFlagService.IsDisplayFuGetLinksEnabled();
             model.IsPackageRenamesEnabled = _featureFlagService.IsPackageRenamesEnabled(currentUser);
             model.IsPackageDependentsEnabled = _featureFlagService.IsPackageDependentsEnabled(currentUser);
-           
+
             if (model.IsPackageDependentsEnabled)
             {
                 model.PackageDependents = GetPackageDependents(id);
@@ -1033,12 +1056,12 @@ namespace NuGetGallery
             }
             ViewBag.FacebookAppID = _config.FacebookAppId;
 
-            if (_featureFlagService.IsDisplayPackagePageV2Enabled(GetCurrentUser())) 
-            { 
+            if (_featureFlagService.IsDisplayPackagePageV2Enabled(GetCurrentUser()))
+            {
                 return View("DisplayPackageV2", model);
             }
-            else 
-            { 
+            else
+            {
                 return View("DisplayPackage", model);
             }
         }
@@ -1331,7 +1354,7 @@ namespace NuGetGallery
 
             // If the experience hasn't been cached, it means it's not the default experienced, therefore, show the panel
             viewModel.IsAdvancedSearchFlightEnabled = searchService.SupportsAdvancedSearch && isAdvancedSearchFlightEnabled;
-            viewModel.ShouldDisplayAdvancedSearchPanel =  !shouldCacheAdvancedSearch || !includePrerelease;
+            viewModel.ShouldDisplayAdvancedSearchPanel = !shouldCacheAdvancedSearch || !includePrerelease;
 
             ViewBag.SearchTerm = q;
 
@@ -1350,7 +1373,7 @@ namespace NuGetGallery
 
             var model = new ReportAbuseViewModel
             {
-                ReasonChoices = _featureFlagService.IsShowReportAbuseSafetyChangesEnabled() 
+                ReasonChoices = _featureFlagService.IsShowReportAbuseSafetyChangesEnabled()
                     ? ReportAbuseWithSafetyReasons
                     : ReportAbuseReasons,
                 PackageId = id,
@@ -1542,14 +1565,73 @@ namespace NuGetGallery
             return Redirect(Url.Package(package.PackageRegistration.Id, package.NormalizedVersion));
         }
 
-        [HttpGet]
-        public ActionResult OpenInInteractiveNotebooks(string id, string version, string x)
+        private static string ToLiteral(string input)
         {
-            // grab readme (from disk?)
-            // add ```csharp stuff at the start of it
-            // send it
+            using (var writer = new StringWriter())
+            {
+                using (var provider = CodeDomProvider.CreateProvider("CSharp"))
+                {
+                    provider.GenerateCodeFromExpression(new CodePrimitiveExpression(input), writer, null);
+                    return writer.ToString();
+                }
+            }
+        }
 
-            return Content($"#!csharp\r\n#r \"nuget: {id}, {version}\"");
+        [HttpGet]
+        public async Task<ActionResult> OpenInInteractiveNotebooks(string id, string version, string x)
+        {
+            var package = _packageService.FindPackageByIdAndVersionStrict(id, version);
+
+            var readMe = (await _readMeService.GetReadMeMdAsync(package)) ?? "";
+            //var readMeLiteral = ToLiteral(readMe);
+
+            var doc = Markdown.Parse(readMe);
+            var markdown = new StringBuilder();
+            var dib = new StringBuilder();
+
+            foreach (var a in doc)
+            {
+                switch (a)
+                {
+                    case FencedCodeBlock cb when cb.Arguments.Contains("--project"):
+                        {
+                            if (markdown.Length > 0)
+                            {
+                                dib.Append($"#!markdown\r\n{markdown.ToString()}");
+                            }
+                            var lang = cb.Info;
+                            var code = cb.Lines.ToString();
+
+                            dib.Append($"#!{lang}\r\n{code}");
+                        }
+                        break;
+
+                    default:
+                        {
+                            var code = readMe.Substring(a.Span.Start, a.Span.Length);
+                            if (!string.IsNullOrWhiteSpace(code))
+                            {
+                                markdown.AppendLine(code);
+                            }
+                        }
+                        break;
+                }
+
+            }
+
+            var finalDib = new StringBuilder();
+
+            foreach (var line in Regex.Split(dib.ToString(), Environment.NewLine))
+            {
+                finalDib.Append(line);
+                finalDib.Append(Environment.NewLine);
+                if (Regex.IsMatch(line, @".*<[^>]+>"))
+                {
+                    finalDib.Append(Environment.NewLine);
+                }
+            }
+
+            return Content(finalDib.ToString());
         }
 
         private async Task<ActionResult> ValidateReportMyPackageViewModel(ReportMyPackageViewModel reportForm, Package package)
@@ -2162,7 +2244,7 @@ namespace NuGetGallery
 
         [UIAuthorize]
         [HttpPost]
-        [ValidateInput(false)] 
+        [ValidateInput(false)]
         [ValidateAntiForgeryToken]
         [RequiresAccountConfirmation("edit a package")]
         [SuppressMessage("Security", "CA5363:Do Not Disable Request Validation", Justification = "Security note: Disabling ASP.Net input validation which does things like disallow angle brackets in submissions. See http://go.microsoft.com/fwlink/?LinkID=212874")]
@@ -2304,7 +2386,7 @@ namespace NuGetGallery
             {
                 return Redirect(Url.ManageMyReceivedPackageOwnershipRequests());
             }
-            
+
             if (accept)
             {
                 await _packageOwnershipManagementService.AddPackageOwnerAsync(package, user);
@@ -2716,7 +2798,7 @@ namespace NuGetGallery
                 {
                     return afterValidationJsonResult;
                 }
-                
+
                 if (formData.Edit != null)
                 {
                     if (_readMeService.HasReadMeSource(formData.Edit.ReadMe) && package.HasReadMe && package.EmbeddedReadmeType != EmbeddedReadmeFileType.Absent)
@@ -2975,7 +3057,7 @@ namespace NuGetGallery
             {
                 return Json(HttpStatusCode.Forbidden, null, JsonRequestBehavior.AllowGet);
             }
-            
+
             var request = new EditPackageVersionReadMeRequest();
             if (package.HasReadMe)
             {
@@ -3125,7 +3207,7 @@ namespace NuGetGallery
 
         private static bool IsSupportedSortBy(string sortBy)
         {
-            return sortBy != null && 
+            return sortBy != null &&
                 (string.Equals(sortBy, GalleryConstants.SearchSortNames.Relevance, StringComparison.OrdinalIgnoreCase)
                 || string.Equals(sortBy, GalleryConstants.SearchSortNames.TotalDownloadsDesc, StringComparison.OrdinalIgnoreCase)
                 || string.Equals(sortBy, GalleryConstants.SearchSortNames.CreatedDesc, StringComparison.OrdinalIgnoreCase));

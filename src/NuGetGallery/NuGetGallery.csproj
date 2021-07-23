@@ -2312,6 +2312,7 @@
     <PackageReference Include="WindowsAzure.Storage">
       <Version>9.3.3</Version>
     </PackageReference>
+    <PackageReference Include="Markdig.Signed" Version="0.25.0" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="App_Data\Files\Content\Cache-Configuration.json" />
