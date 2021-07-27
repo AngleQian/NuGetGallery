@@ -1583,8 +1583,6 @@ namespace NuGetGallery
             var package = _packageService.FindPackageByIdAndVersionStrict(id, version);
 
             var readMe = (await _readMeService.GetReadMeMdAsync(package)) ?? "";
-            //var readMeLiteral = ToLiteral(readMe);
-
             var doc = Markdown.Parse(readMe);
             var markdown = new StringBuilder();
             var dib = new StringBuilder();
@@ -1598,6 +1596,7 @@ namespace NuGetGallery
                             if (markdown.Length > 0)
                             {
                                 dib.Append($"#!markdown\r\n{markdown.ToString()}");
+                                markdown = new StringBuilder();
                             }
                             var lang = cb.Info;
                             var code = cb.Lines.ToString();
@@ -1608,10 +1607,18 @@ namespace NuGetGallery
 
                     default:
                         {
-                            var code = readMe.Substring(a.Span.Start, a.Span.Length);
-                            if (!string.IsNullOrWhiteSpace(code))
+                            var markdownCode = readMe.Substring(a.Span.Start, a.Span.Length);
+                            if (!string.IsNullOrWhiteSpace(markdownCode))
                             {
-                                markdown.AppendLine(code);
+                                foreach (var line in Regex.Split(markdownCode, Environment.NewLine))
+                                {
+                                    markdown.Append(line);
+                                    markdown.Append(Environment.NewLine);
+                                    if (Regex.IsMatch(line, @".*<[^>]+>"))
+                                    {
+                                        markdown.Append(Environment.NewLine);
+                                    }
+                                }
                             }
                         }
                         break;
@@ -1619,19 +1626,12 @@ namespace NuGetGallery
 
             }
 
-            var finalDib = new StringBuilder();
-
-            foreach (var line in Regex.Split(dib.ToString(), Environment.NewLine))
+            if (markdown.Length > 0)
             {
-                finalDib.Append(line);
-                finalDib.Append(Environment.NewLine);
-                if (Regex.IsMatch(line, @".*<[^>]+>"))
-                {
-                    finalDib.Append(Environment.NewLine);
-                }
+                dib.Append($"#!markdown\r\n{markdown.ToString()}");
             }
 
-            return Content(finalDib.ToString());
+            return Content($"#r \"nuget: {id}, {version}\"\r\n{dib.ToString()}");
         }
 
         private async Task<ActionResult> ValidateReportMyPackageViewModel(ReportMyPackageViewModel reportForm, Package package)
